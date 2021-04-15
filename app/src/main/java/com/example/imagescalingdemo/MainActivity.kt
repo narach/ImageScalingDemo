@@ -17,7 +17,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     val selImagesRequestCode = 1
-    // Set expected image size to 1 Mb
+    // Set expected image size to 512 Kb
     val expectedSize = 1024*512
     val logTag = "ImgProcessing"
 
@@ -46,13 +46,15 @@ class MainActivity : AppCompatActivity() {
         if(resultCode == Activity.RESULT_OK && requestCode == selImagesRequestCode) {
             data?.let { intent ->
                 intent.clipData?.let { imgData ->
-//                    doSerialCompression(imgData)
-                    val bitmapsList = doParallelCompression(imgData)
-                    val imagesTable = splitRowsToTable(bitmapsList)
-
-                    val imgRowAdapter = ImageRowAdapter(imagesTable)
-                    binding.rvImages.layoutManager = LinearLayoutManager(this)
-                    binding.rvImages.adapter = imgRowAdapter
+                    doSerialCompression(imgData)
+                    /* TODO -
+                      1) реализовать сжатие всех выбранных изображений параллельно, по
+                    *,1-й корутине для каждого изображения
+                    * 2) Вывести в лог время последовательного сжатия, и время параллельного.
+                    * 3) Сравнить полученные результаты для 5, 10 и 20 изображений
+                    * 4) Сравнить время работы и количество созданных корутин при запуске в эмуляторе
+                    * и на реальном устройстве.
+                     */
                 }
             }
         }
@@ -73,30 +75,7 @@ class MainActivity : AppCompatActivity() {
         Log.d(logTag,"Serial compression time: $compressionTime ms")
     }
 
-    private fun doParallelCompression(imgData: ClipData) : List<Bitmap> {
-        var compressedImages = listOf<Bitmap>()
-
-        var count = imgData.itemCount
-        Log.d(logTag, "Start compressing $count large images...")
-        val compressJob = GlobalScope.launch(Dispatchers.Default) {
-            val compressionTime = measureTimeMillis {
-                val defersList: List<Deferred<Bitmap>> = (0 until count).map {
-                    async {
-                        compressImage(imgData.getItemAt(it).uri)
-                    }
-                }
-                compressedImages = defersList.awaitAll()
-            }
-            Log.d(logTag,"Parallel compression time: $compressionTime ms")
-        }
-        runBlocking {
-            compressJob.join()
-        }
-        return compressedImages
-    }
-
     suspend fun compressImage(imgUri: Uri) : Bitmap {
-        delay(1000)
         Log.d(logTag, "Execturing compression from Thread: ${Thread.currentThread().name}")
         var imgOptions = BitmapFactory.Options()
         imgOptions.inJustDecodeBounds = true
@@ -104,12 +83,6 @@ class MainActivity : AppCompatActivity() {
         val byteLength = inputStream?.available()
 
         val imageBitmap = BitmapFactory.decodeStream(inputStream)
-        val imgInfo = ImgInfo(imageBitmap.width, imageBitmap.height, "", byteLength!!)
-
-        // Reduce image quality
-//        val baos = ByteArrayOutputStream()
-//        imageBitmap.compress(Bitmap.CompressFormat.JPEG, 50, baos)
-//        val compressedImage = BitmapFactory.decodeByteArray(baos.toByteArray(), 0, baos.toByteArray().size)
 
         // Scale image to size < 512 Kb.
         var imgSize = imageBitmap.allocationByteCount
